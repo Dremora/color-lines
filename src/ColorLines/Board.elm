@@ -1,23 +1,24 @@
-module ColorLines.Board (
-  Location, Board, rows, cols, empty, getBall,
-  draw, blockSize, Action(Generate, Select), update
-  ) where
+module ColorLines.Board exposing (
+    rows, cols, empty, Location, blockSize, Msg(..), Board, getBall, view, update
+  )
 
 import Array
 import Debug
-import Graphics.Collage exposing (Form, collage, group, rect, filled, circle, move)
-import Effects
+import Collage exposing (Form, collage, group, rect, filled, circle, move)
 import Random exposing (Generator)
+import Task exposing (Task)
+import Time
 
 import ColorLines.Ball as BallM exposing (Ball)
+import ColorLines.Matrix as Matrix
 
 
 type alias Location = (Int, Int)
 type alias Board = Array.Array (Maybe Ball)
 
 
-rows = 5
-cols = 13
+rows = 9
+cols = 9
 
 
 empty = Array.repeat (rows * cols) Nothing
@@ -107,24 +108,27 @@ freeIndexToPosition board index =
     Array.foldl rec (-1, index + 1) board |> fst
 
 
-randomFreeLocation : Board -> Random.Seed -> (Ball, Location, Random.Seed, Effects.Effects BallM.Action)
+randomFreeLocation : Board -> Random.Seed -> (Ball, Location, Random.Seed)
 randomFreeLocation board seed =
   let
     dimGenerator = Random.int 0 <| (emptyCellCount board) - 1
     composed = Random.map2 (,) dimGenerator BallM.init
-    ((index, (ball, effects)), seed') = Random.generate composed seed
+    ((index, ball), seed') = Random.step composed seed
   in
-    (ball, positionToLocation <| freeIndexToPosition board <| index, seed', effects)
+    (ball, positionToLocation <| freeIndexToPosition board <| index, seed')
 
 
 blockSize = 40
 
 
-draw : Board -> List Form
-draw board =
+view : Board -> List Form
+view board =
   board
   |> Array.toIndexedList
-  |> List.filterMap (\(position, ball) -> Maybe.map (\ball -> (positionToLocation position, ball)) ball)
+  |> List.filterMap (\(position, ball) -> case ball of
+      Nothing -> Nothing
+      Just ball -> Just ((positionToLocation position), ball)
+    )
   |> List.map drawBallAtLocation
 
 
@@ -135,34 +139,60 @@ drawBallAtLocation ((x, y), ball) =
     tY = -(toFloat y + 0.5) * blockSize
   in
     ball
-    |> BallM.draw
+    |> BallM.view
     |> move (tX, tY)
 
 
-type Action =
-  BallAction Location BallM.Action
+type Msg =
+  BallAction Location BallM.Msg
   | Generate Int
   | Select Int Location
+  | Tick Time.Time
 
 
 generate3balls board seed =
   let
-    ((board', seed'), location, action') = addRandomBall (board, Random.initialSeed seed)
-    ((board'', seed''), location', action'') = addRandomBall (board', seed')
-    ((board''', seed'''), location'', action''') = addRandomBall (board'', seed'')
-    actions = Effects.batch [
-      Effects.map (BallAction location) action'
-    , Effects.map (BallAction location') action''
-    , Effects.map (BallAction location'') action'''
-    ]
+    (board', _) =
+      addRandomBall (board, Random.initialSeed seed)
+      |> addRandomBall |> addRandomBall
   in
-    (board''', actions)
+    board'
 
-update : Action -> Board -> (Board, Effects.Effects Action)
+
+remove : Maybe Ball -> Maybe Ball
+remove ballM =
+  Maybe.andThen ballM (\ball -> if BallM.isRemoved ball then Nothing else Just ball)
+
+
+removeBalls : List Location -> Board -> Board
+removeBalls toRemove board =
+  let
+    rec location board =
+      case getBall location board of
+        Nothing -> board
+        Just ball ->
+          let
+            ball' = BallM.startRemoving ball
+          in
+            updateLocation location (Just ball') board
+  in
+    List.foldl rec (board) toRemove
+
+
+update : Msg -> Board -> (Board, Cmd Msg)
 update action board =
   case action of
     Generate seed ->
-      generate3balls board seed
+      (generate3balls board seed, Cmd.none)
+
+    Tick delta ->
+      let
+        updateBall = BallM.update (BallM.Tick delta)
+        balls = board
+          |> Array.map (Maybe.map updateBall)
+          |> Array.map remove
+      in
+        (balls, Cmd.none)
 
     Select seed newLocation ->
       let
@@ -174,47 +204,76 @@ update action board =
             (board
             |> clearSelection
             |> updateLocation newLocation (Just { ball | selected = True })
-            , Effects.none)
+            , Cmd.none)
 
           (Just oldLocation, Nothing) ->
             let
               board' = moveBall oldLocation newLocation board
+              toRemove = findMatching newLocation board'
             in
-              generate3balls board' seed
+              if List.isEmpty toRemove then
+                (generate3balls board' seed, Cmd.none)
+              else
+                (removeBalls toRemove board', Cmd.none)
 
           _ ->
-            (board, Effects.none)
+            (board, Cmd.none)
 
     BallAction location ballAction ->
       case getBall location board of
         Just ball ->
           let
-            (ball', effects) = BallM.update ballAction ball
+            ball' = BallM.update ballAction ball
           in
             ( updateLocation location (Just ball') board
-            , Effects.map (BallAction location) effects)
+            , Cmd.none)
         Nothing  ->
-          (board, Effects.none)
+          (board, Cmd.none)
 
 
-addRandomBall : (Board, Random.Seed) -> ((Board, Random.Seed), Location, Effects.Effects BallM.Action)
+addRandomBall : (Board, Random.Seed) -> (Board, Random.Seed)
 addRandomBall (board, seed) =
   let
-    (ball, location, seed', action) = randomFreeLocation board seed
+    (ball, location, seed') = randomFreeLocation board seed
   in
-    ((updateLocation location (Just ball) board, seed'), location, action)
+    ((updateLocation location (Just ball) board, seed'))
 
 
--- findMatchingLocationsInRow : Board -> Int -> List Location
--- findMatchingLocationsInRow board row =
+type alias Direction = (Int, Int)
 
 
+findMatching : Location -> Board -> List Location
+findMatching location board =
+  case getBall location board of
+    Nothing ->
+      []
+    Just ball ->
+      let
+        find = findDir ball location board
+        horizontal = find (0, -1) `List.append` find (0, 1)
+        vertical = find (-1, 0) `List.append` find (1, 0)
+        topleft = find (-1, -1) `List.append` find (1, 1)
+        topright = find (1, -1) `List.append` find (-1, 1)
+        required = \list -> if List.length list >= 4 then list else []
+        all =
+          required horizontal `List.append`
+          required vertical `List.append`
+          required topleft `List.append`
+          required topright
+      in
+        if List.isEmpty all then [] else location :: all
 
--- findHorizontalMatches : Board -> List Location
--- findMatches board =
---   Debug.crash "not implemented"
---
---
--- findMatches : Board -> List Location
--- findMatches board =
---   Debug.crash "not implemented"
+
+findDir : Ball -> Location -> Board -> Direction -> List Location
+findDir ball ((x, y) as location) board ((dx, dy) as direction) =
+  let
+    newLocation = (x + dx, y + dy)
+  in
+    case getBall newLocation board of
+      Nothing ->
+        []
+      Just ball2 ->
+        if ball2.color == ball.color then
+          newLocation :: findDir ball newLocation board direction
+        else
+          []

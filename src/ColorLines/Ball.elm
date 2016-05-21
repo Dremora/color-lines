@@ -1,15 +1,25 @@
-module ColorLines.Ball (Ball, init, draw, update, Action) where
+module ColorLines.Ball exposing (Ball, init, view, startRemoving, update, Msg(..), isRemoved)
 
 import Color exposing (Color, red, green, blue, grey)
-import Effects
-import Graphics.Collage exposing (Form, group, circle, filled, outlined, solid)
+import Collage exposing (Form, group, circle, filled, outlined, solid, alpha)
 import Random exposing (Generator)
 import Time exposing (Time)
+import Platform.Cmd as Cmd exposing (Cmd, none)
+import Task exposing (Task)
+import Random
+
+import Debug
 
 
 type BallColor = Red | Green | Blue
 
-type Animation = Static | Hidden | Appearing { elapsedTime: Time, prevClockTime: Time }
+type Animation =
+    Normal
+  | Hidden
+  | DisappearPending
+  | Removed
+  | Appearing { elapsedTime: Time }
+  | Disappearing { elapsedTime: Time }
 
 
 type alias Ball =
@@ -17,6 +27,10 @@ type alias Ball =
   , selected: Bool
   , animationState: Animation
   }
+
+
+isRemoved ball =
+  ball.animationState == Removed
 
 
 radius : Float
@@ -37,8 +51,8 @@ color ball =
     Blue -> blue
 
 
-generator : Generator Ball
-generator =
+init : Generator Ball
+init =
   let
     intToColor int = case int of
       0 -> Red
@@ -50,49 +64,77 @@ generator =
     Random.map intToBall (Random.int 0 2)
 
 
-type Action = Tick Time
+type Msg = Tick Time
 
 
-init : Generator (Ball, Effects.Effects Action)
-init =
-  Random.map (flip (,) (Effects.tick Tick)) generator
+startRemoving : Ball -> Ball
+startRemoving ball =
+  { ball | animationState = DisappearPending }
 
 
-update : Action -> Ball -> (Ball, Effects.Effects Action)
-update action ball =
-  case action of
-    Tick clockTime ->
+update : Msg -> Ball -> Ball
+update msg ball =
+  case msg of
+    Tick delta ->
       let
         newElapsedTime =
           case ball.animationState of
-            Static -> 0
-            Hidden -> 0
-            Appearing { elapsedTime, prevClockTime } ->
-              elapsedTime + (clockTime - prevClockTime)
+            Appearing { elapsedTime } ->
+              elapsedTime + delta
+            Disappearing { elapsedTime } ->
+              elapsedTime + delta
+            _ -> 0
 
         continue = newElapsedTime < ballAppearTime
       in
-        if continue then
-          ( { ball | animationState = Appearing { elapsedTime = newElapsedTime, prevClockTime = clockTime } }
-          , Effects.tick Tick)
-        else
-          ( { ball | animationState = Static }
-          , Effects.none)
+        case ball.animationState of
+          Hidden ->
+            if continue then
+              { ball | animationState = Appearing { elapsedTime = 0 } }
+            else
+              { ball | animationState = Normal }
+          Appearing _ ->
+            if continue then
+              { ball | animationState = Appearing { elapsedTime = newElapsedTime } }
+            else
+              { ball | animationState = Normal }
+          Disappearing _ ->
+            if continue then
+              { ball | animationState = Disappearing { elapsedTime = newElapsedTime } }
+            else
+              { ball | animationState = Removed }
+          DisappearPending ->
+            if continue then
+              { ball | animationState = Disappearing { elapsedTime = 0 } }
+            else
+              { ball | animationState = Normal }
+          _ ->
+            ball
 
 
-draw : Ball -> Form
-draw ball =
+view : Ball -> Form
+view ball =
   let
     currentRadius =
       case ball.animationState of
-        Static -> radius
+        Normal -> radius
+        DisappearPending -> radius
         Hidden -> 0
+        Removed -> 0
         Appearing { elapsedTime } -> elapsedTime / ballAppearTime * radius
+        Disappearing { elapsedTime } -> (ballAppearTime + elapsedTime) / ballAppearTime * radius
+
+    opacity =
+      case ball.animationState of
+        Disappearing { elapsedTime } -> (ballAppearTime - elapsedTime) / ballAppearTime
+        _ -> 1
 
     contents = filled (color ball) (circle currentRadius)
     border = outlined (solid grey) (circle currentRadius)
+    filledBall =
+      if ball.selected then
+        group [ contents, border ]
+      else
+        contents
   in
-    if ball.selected then
-      group [ contents, border ]
-    else
-      contents
+    filledBall |> alpha opacity

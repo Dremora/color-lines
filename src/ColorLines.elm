@@ -1,97 +1,109 @@
-module ColorLines (init, update, view, input) where
+module ColorLines exposing (init, update, view, subscriptions)
 
 import Color exposing (lightRed)
-import Effects
-import Graphics.Collage exposing (Form, collage, group, rect, filled, circle, move)
+import Collage exposing (Form, collage, group, rect, filled, circle, move)
 import Html
-import Mouse
+import Element
 import Random
-import Signal exposing (Address)
 import Time
 import Debug
+import Html.App
+import Platform.Cmd as Cmd exposing (Cmd)
+import AnimationFrame
+import Mouse
+import Time
 
-import Native.ColorLines
 import ColorLines.Board as Board
 
 
 type alias Game =
   { board: Board.Board
-  , seed: Random.Seed
   }
 
 
-type Action = Generate Float | Click (Float, Board.Location) | SubMsg Board.Action
+type Msg = BoardMsg Board.Msg
+  | Generate Int
+  | Click (Board.Location)
+  | SelectOrMove (Int, Board.Location)
+  | Tick Time.Time
 
 
-initialSeed : Int
-initialSeed =
-  Native.ColorLines.initialSeed
-
-
-init : (Game, Effects.Effects Action)
+init : (Game, Cmd Msg)
 init =
   (
     { board = Board.empty
-    , seed = Random.initialSeed initialSeed
     }
-  , Effects.tick Generate
+    , Random.generate Generate (Random.int Random.minInt Random.maxInt)
   )
-
-
-update : Action -> Game -> (Game, Effects.Effects Action)
-update action game =
-  case action of
-    Generate time ->
+--
+--
+update : Msg -> Game -> (Game, Cmd Msg)
+update msg game =
+  case msg of
+    Generate seed ->
       let
-        (board, effects) = Board.update (Board.Generate (round time)) game.board
+        (board, effects) = Board.update (Board.Generate seed) game.board
       in
         ( { game | board = board }
-        , Effects.map SubMsg effects)
+        , Cmd.map BoardMsg effects)
 
-    Click (time, location) ->
+    Click location ->
+      (game, (Random.generate (\t -> SelectOrMove (t, location)) (Random.int Random.minInt Random.maxInt)))
+
+    SelectOrMove (seed, location) ->
       let
-        (board, effects) = Board.update (Board.Select (round time) location) game.board
+        (board, effects) = Board.update (Board.Select seed location) game.board
       in
         ( { game | board = board }
-        , Effects.map SubMsg effects)
+        , Cmd.map BoardMsg effects)
 
-    SubMsg boardAction ->
+    BoardMsg boardMsg ->
       let
-        (board, effects) = Board.update boardAction game.board
+        (board, effects) = Board.update boardMsg game.board
       in
         ( { game | board = board }
-        , Effects.map SubMsg effects)
+        , Cmd.map BoardMsg effects)
+
+    Tick delta ->
+      let
+        (board, effects) = Board.update (Board.Tick delta) game.board
+      in
+        ( { game | board = board }
+        , Cmd.map BoardMsg effects)
 
 
 fieldWidth = Board.cols * Board.blockSize
 fieldHeight = Board.rows * Board.blockSize
 
 
-view : Address action -> Game -> Html.Html
-view _ game =
+view : Game -> Html.Html Msg
+view game =
   collage fieldWidth fieldHeight [
     rect fieldWidth fieldHeight
-    |> filled lightRed,
-    Board.draw game.board
+    |> filled lightRed
+    , Board.view game.board
     |> group
     |> move (-fieldWidth / 2, fieldHeight / 2)
   ]
-  |> Html.fromElement
+  |> Element.toHtml
 
 
-clicks : Signal (Int, Int)
+clicks : Sub (Int, Int)
 clicks =
-  Signal.sampleOn Mouse.clicks Mouse.position
+  Mouse.clicks (\{ x, y } -> (x, y))
 
 
-cellClicks : Signal Board.Location
+cellClicks : Sub Board.Location
 cellClicks =
   let
     coorsToLocation (x, y) =
       (x // Board.blockSize, y // Board.blockSize)
   in
-    Signal.map coorsToLocation clicks
+    Sub.map coorsToLocation clicks
 
 
-input =
-  Signal.map Click <| Time.timestamp cellClicks
+subscriptions _ =
+  Sub.batch
+    [ Sub.map Click cellClicks
+    , AnimationFrame.diffs Tick
+    ]

@@ -1,25 +1,7 @@
-import Effects exposing (Never)
-import Signal
-import StartApp exposing (start)
-import Task
-import Time
-
-import ColorLines exposing (init, update, view, input)
-
-
-app =
-  start
-    { init = init
-    , update = update
-    , view = view
-    , inputs = [input]
-    }
+import Html.App as Html
+import ColorLines exposing (init, update, view, subscriptions)
 
 
 main =
-  app.html
-
-
-port tasks : Signal (Task.Task Never ())
-port tasks =
-  app.tasks
+  Html.program
+    { init = init, update = update, view = view, subscriptions = subscriptions }
