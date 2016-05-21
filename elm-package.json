@@ -1,7 +1,7 @@
 {
     "version": "1.0.0",
     "summary": "helpful summary of your project, less than 80 characters",
-    "repository": "https://github.com/Dremora/elm-color-lines.git",
+    "repository": "https://github.com/Dremora/color-lines.git",
     "license": "MIT",
     "source-directories": [
         "src"
