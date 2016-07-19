@@ -6,8 +6,12 @@ import Array
 import Debug
 import Collage exposing (Form, collage, group, rect, filled, circle, move)
 import Random exposing (Generator)
+import Set exposing (Set)
 import Task exposing (Task)
 import Time
+
+import AStar
+import Maybe.Extra exposing (isJust, isNothing)
 
 import ColorLines.Ball as BallM exposing (Ball)
 import ColorLines.Matrix as Matrix
@@ -179,6 +183,37 @@ removeBalls toRemove board =
     List.foldl rec (board) toRemove
 
 
+moves : Board -> Location -> Set Location
+moves board location =
+  let
+    allNeighbours : Location -> List Location
+    allNeighbours (x, y) =
+      [ (x - 1, y)
+      , (x + 1, y)
+      , (x, y - 1)
+      , (x, y + 1)
+      ]
+
+    isLocationOnBoard : Location -> Bool
+    isLocationOnBoard (x, y) =
+      x >= 0 && y >= 0 && x < cols && y < rows
+
+    isLocationEmpty : Location -> Bool
+    isLocationEmpty location =
+      getBall location board |> isNothing
+
+  in
+    allNeighbours location
+    |> List.filter isLocationOnBoard
+    |> List.filter isLocationEmpty
+    |> Set.fromList
+
+
+canMove : Board -> Location -> Location -> Bool
+canMove board from to =
+  isJust (AStar.findPath AStar.straightLineCost (moves board) from to)
+
+
 update : Msg -> Board -> (Board, Cmd Msg)
 update action board =
   case action of
@@ -211,7 +246,9 @@ update action board =
               board' = moveBall oldLocation newLocation board
               toRemove = findMatching newLocation board'
             in
-              if List.isEmpty toRemove then
+              if not (canMove board oldLocation newLocation) then
+                (board, Cmd.none)
+              else if List.isEmpty toRemove then
                 (generate3balls board' seed, Cmd.none)
               else
                 (removeBalls toRemove board', Cmd.none)

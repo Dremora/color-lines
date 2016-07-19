@@ -75,7 +75,6 @@ update msg game =
 fieldWidth = Board.cols * Board.blockSize
 fieldHeight = Board.rows * Board.blockSize
 
-
 view : Game -> Html.Html Msg
 view game =
   collage fieldWidth fieldHeight [
