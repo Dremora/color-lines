@@ -1,4 +1,5 @@
-module ColorLines.Ball exposing (Ball, init, view, startRemoving, update, Msg(..), isRemoved)
+module ColorLines.Ball exposing (Ball, init, view, startRemoving, update, Msg(..), isRemoved
+  , cantRemove)
 
 import Color exposing (Color, red, green, blue, grey)
 import Collage exposing (Form, group, circle, filled, outlined, solid, alpha)
@@ -8,18 +9,15 @@ import Platform.Cmd as Cmd exposing (Cmd, none)
 import Task exposing (Task)
 import Random
 
-import Debug
-
 
 type BallColor = Red | Green | Blue
 
 type Animation =
     Normal
-  | Hidden
-  | DisappearPending
   | Removed
   | Appearing { elapsedTime: Time }
   | Disappearing { elapsedTime: Time }
+  | CantMove { elapsedTime: Time }
 
 
 type alias Ball =
@@ -59,7 +57,7 @@ init =
       1 -> Green
       2 -> Blue
       _ -> Red
-    intToBall int = { color = intToColor int, selected = False, animationState = Hidden }
+    intToBall int = { color = intToColor int, selected = False, animationState = Appearing { elapsedTime = 0 } }
   in
     Random.map intToBall (Random.int 0 2)
 
@@ -69,7 +67,12 @@ type Msg = Tick Time
 
 startRemoving : Ball -> Ball
 startRemoving ball =
-  { ball | animationState = DisappearPending }
+  { ball | animationState = Disappearing { elapsedTime = 0 } }
+
+
+cantRemove : Ball -> Ball
+cantRemove ball =
+  { ball | animationState = CantMove { elapsedTime = 0 } }
 
 
 update : Msg -> Ball -> Ball
@@ -83,16 +86,13 @@ update msg ball =
               elapsedTime + delta
             Disappearing { elapsedTime } ->
               elapsedTime + delta
+            CantMove { elapsedTime } ->
+              elapsedTime + delta
             _ -> 0
 
         continue = newElapsedTime < ballAppearTime
       in
         case ball.animationState of
-          Hidden ->
-            if continue then
-              { ball | animationState = Appearing { elapsedTime = 0 } }
-            else
-              { ball | animationState = Normal }
           Appearing _ ->
             if continue then
               { ball | animationState = Appearing { elapsedTime = newElapsedTime } }
@@ -103,9 +103,9 @@ update msg ball =
               { ball | animationState = Disappearing { elapsedTime = newElapsedTime } }
             else
               { ball | animationState = Removed }
-          DisappearPending ->
+          CantMove _ ->
             if continue then
-              { ball | animationState = Disappearing { elapsedTime = 0 } }
+              { ball | animationState = CantMove { elapsedTime = newElapsedTime } }
             else
               { ball | animationState = Normal }
           _ ->
@@ -118,11 +118,10 @@ view ball =
     currentRadius =
       case ball.animationState of
         Normal -> radius
-        DisappearPending -> radius
-        Hidden -> 0
         Removed -> 0
         Appearing { elapsedTime } -> elapsedTime / ballAppearTime * radius
         Disappearing { elapsedTime } -> (ballAppearTime + elapsedTime) / ballAppearTime * radius
+        CantMove { elapsedTime } -> radius + elapsedTime / ballAppearTime * 6
 
     opacity =
       case ball.animationState of

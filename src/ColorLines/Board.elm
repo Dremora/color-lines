@@ -168,6 +168,14 @@ remove ballM =
   Maybe.andThen ballM (\ball -> if BallM.isRemoved ball then Nothing else Just ball)
 
 
+shakeBall : Location -> Board -> Board
+shakeBall location board =
+  getBall location board
+  |> Maybe.map BallM.cantRemove
+  |> Maybe.map (\ball -> updateLocation location (Just ball) board)
+  |> Maybe.withDefault board
+
+
 removeBalls : List Location -> Board -> Board
 removeBalls toRemove board =
   let
@@ -247,7 +255,7 @@ update action board =
               toRemove = findMatching newLocation board'
             in
               if not (canMove board oldLocation newLocation) then
-                (board, Cmd.none)
+                (shakeBall oldLocation board, Cmd.none)
               else if List.isEmpty toRemove then
                 (generate3balls board' seed, Cmd.none)
               else
