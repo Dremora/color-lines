@@ -1,19 +1,19 @@
 module ColorLines.Board exposing (
-    rows, cols, empty, Location, blockSize, Msg(..), Board, getBall, view, update
+    rows, cols, empty, Location, blockSize, Board, view, animateBoard, select
+  , generate3balls
   )
 
 import Array
-import Debug
 import Collage exposing (Form, collage, group, rect, filled, circle, move)
 import Random exposing (Generator)
 import Set exposing (Set)
 import Task exposing (Task)
-import Time
+import Time exposing (Time)
 
 import AStar
 import Maybe.Extra exposing (isJust, isNothing)
 
-import ColorLines.Ball as BallM exposing (Ball)
+import ColorLines.Ball as BallM exposing (Ball, Notification(..))
 import ColorLines.Matrix as Matrix
 
 
@@ -38,14 +38,19 @@ positionToLocation pos =
   (pos % cols, pos // cols)
 
 
-updateLocation : Location -> Maybe Ball -> Board -> Board
-updateLocation location ball board =
+updateLocation : Location -> (Maybe Ball -> Maybe Ball) -> Board -> Board
+updateLocation location update board =
+  Array.set (locationToPosition location) (update (getBall location board)) board
+
+
+setLocation : Location -> Maybe Ball -> Board -> Board
+setLocation location ball board =
   Array.set (locationToPosition location) ball board
 
 
 clearBall : Location -> Board -> Board
 clearBall location board =
-  updateLocation location Nothing board
+  setLocation location Nothing board
 
 
 getBall : Location -> Board -> Maybe Ball
@@ -78,14 +83,27 @@ moveBall old new board =
   in
     board
     |> clearBall old
-    |> updateLocation new ball
+    |> setLocation new ball
 
 
-hasBallAt : Location -> Board -> Bool
-hasBallAt location board =
-  case Array.get (locationToPosition location) board of
-    Just _ -> True
-    Nothing -> False
+startMovingBall : List Location -> Location -> Location -> Board -> Board
+startMovingBall path old new board =
+  let
+    (x, y) = old
+    -- calcDiff (newX, newY) ((oldX, oldY), diffs) =
+    --   ((newX, newY), (newX - oldX, newY - oldY) :: diffs)
+    -- diffPath = List.foldr calcDiff (old, []) path |> snd |> Array.fromList
+    calcDiff (newX, newY) ((oldX, oldY), diffs) =
+      ((newX, newY), ((oldX - x, oldY - y), (newX - x, newY - y)) :: diffs)
+    diffPath = List.foldl calcDiff (old, []) path |> snd |> List.reverse
+    -- calcDiff (newX, newY) = (newX - x, newY - y)
+    -- diffPath = List.map calcDiff (old :: path) |> Array.fromList
+    updateBall ball =
+      ball
+      |> Maybe.map (\ball -> { ball | selected = False })
+      |> Maybe.map (\ball -> BallM.moveViaPath ball diffPath new)
+  in
+    updateLocation old updateBall board
 
 
 emptyCellCount : Board -> Int
@@ -147,13 +165,6 @@ drawBallAtLocation ((x, y), ball) =
     |> move (tX, tY)
 
 
-type Msg =
-  BallAction Location BallM.Msg
-  | Generate Int
-  | Select Int Location
-  | Tick Time.Time
-
-
 generate3balls board seed =
   let
     (board', _) =
@@ -170,10 +181,7 @@ remove ballM =
 
 shakeBall : Location -> Board -> Board
 shakeBall location board =
-  getBall location board
-  |> Maybe.map BallM.cantRemove
-  |> Maybe.map (\ball -> updateLocation location (Just ball) board)
-  |> Maybe.withDefault board
+  updateLocation location (Maybe.map BallM.cantRemove) board
 
 
 removeBalls : List Location -> Board -> Board
@@ -186,7 +194,7 @@ removeBalls toRemove board =
           let
             ball' = BallM.startRemoving ball
           in
-            updateLocation location (Just ball') board
+            setLocation location (Just ball') board
   in
     List.foldl rec (board) toRemove
 
@@ -217,63 +225,80 @@ moves board location =
     |> Set.fromList
 
 
-canMove : Board -> Location -> Location -> Bool
-canMove board from to =
-  isJust (AStar.findPath AStar.straightLineCost (moves board) from to)
+findPath : Board -> Location -> Location -> Maybe (List Location)
+findPath board from to =
+  AStar.findPath AStar.straightLineCost (moves board) from to
 
 
-update : Msg -> Board -> (Board, Cmd Msg)
-update action board =
-  case action of
-    Generate seed ->
-      (generate3balls board seed, Cmd.none)
-
-    Tick delta ->
-      let
-        updateBall = BallM.update (BallM.Tick delta)
-        balls = board
-          |> Array.map (Maybe.map updateBall)
-          |> Array.map remove
-      in
-        (balls, Cmd.none)
-
-    Select seed newLocation ->
-      let
-        oldLocation = selectedLocation board
-        ball = getBall newLocation board
-      in
-        case (oldLocation, ball) of
-          (_, Just ball) ->
-            (board
-            |> clearSelection
-            |> updateLocation newLocation (Just { ball | selected = True })
-            , Cmd.none)
-
-          (Just oldLocation, Nothing) ->
+animateBoard : Time -> Int -> Board -> Board
+animateBoard delta seed board =
+  let
+    actionOn (location, ball) =
+      case BallM.animate delta ball of
+        Nop -> identity
+        JustAnimate ball -> setLocation location (Just ball)
+        Remove -> setLocation location Nothing
+        FinalizeMove ball newLocation ->
+          \board ->
             let
-              board' = moveBall oldLocation newLocation board
+              board' =
+                board
+                |> setLocation location Nothing
+                |> setLocation newLocation (Just ball)
               toRemove = findMatching newLocation board'
             in
-              if not (canMove board oldLocation newLocation) then
-                (shakeBall oldLocation board, Cmd.none)
-              else if List.isEmpty toRemove then
-                (generate3balls board' seed, Cmd.none)
+              if List.isEmpty toRemove then
+                generate3balls board' seed
               else
-                (removeBalls toRemove board', Cmd.none)
+                removeBalls toRemove board'
+    ballsWithLocations =
+      board
+      |> Array.toIndexedList
+      |> List.filterMap (\(index, ball) -> Maybe.map (\ball -> (positionToLocation index, ball)) ball)
 
-          _ ->
-            (board, Cmd.none)
+    actions =
+      List.map actionOn ballsWithLocations
 
-    BallAction location ballAction ->
-      case getBall location board of
-        Just ball ->
-          let
-            ball' = BallM.update ballAction ball
-          in
-            ( updateLocation location (Just ball') board
-            , Cmd.none)
-        Nothing  ->
-          (board, Cmd.none)
+    foldFun acc action = action << acc
+  in
+    (List.foldl foldFun identity actions) board
+
+
+isAnimating board =
+  board
+  |> Array.toList
+  |> List.filterMap identity
+  |> List.any BallM.isAnimating
+
+
+select : Board -> Location -> Board
+select board newLocation =
+  let
+    oldLocation = selectedLocation board
+    ball = getBall newLocation board
+  in
+    case (oldLocation, ball) of
+      (_, Just ball) ->
+        board
+        |> clearSelection
+        |> setLocation newLocation (Just { ball | selected = True })
+
+      (Just oldLocation, Nothing) ->
+        let
+          path = findPath board oldLocation newLocation
+        in
+          case path of
+            Just path ->
+              let
+                board' = startMovingBall path oldLocation newLocation board
+                toRemove = findMatching newLocation board'
+              in
+                board'
+            _ ->
+              shakeBall oldLocation board
+
+      _ ->
+        board
 
 
 addRandomBall : (Board, Random.Seed) -> (Board, Random.Seed)
@@ -281,7 +306,7 @@ addRandomBall (board, seed) =
   let
     (ball, location, seed') = randomFreeLocation board seed
   in
-    ((updateLocation location (Just ball) board, seed'))
+    ((setLocation location (Just ball) board, seed'))
 
 
 type alias Direction = (Int, Int)

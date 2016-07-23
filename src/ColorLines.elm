@@ -6,81 +6,55 @@ import Html
 import Element
 import Random
 import Time
-import Debug
 import Html.App
 import Platform.Cmd as Cmd exposing (Cmd)
 import AnimationFrame
 import Mouse
-import Time
+import Time exposing (Time)
 
-import ColorLines.Board as Board
-
-
-type alias Game =
-  { board: Board.Board
-  }
+import ColorLines.Board as Board exposing (Board, Location)
 
 
-type Msg = BoardMsg Board.Msg
-  | Generate Int
-  | Click (Board.Location)
-  | SelectOrMove (Int, Board.Location)
-  | Tick Time.Time
+type Msg =
+    Generate Int
+  | Click Location
+  | Tick Time
+  | Animate Time Int
 
 
-init : (Game, Cmd Msg)
+init : (Board, Cmd Msg)
 init =
   (
-    { board = Board.empty
-    }
-    , Random.generate Generate (Random.int Random.minInt Random.maxInt)
+    Board.empty
+  , Random.generate Generate (Random.int Random.minInt Random.maxInt)
   )
---
---
-update : Msg -> Game -> (Game, Cmd Msg)
-update msg game =
+
+
+update : Msg -> Board -> (Board, Cmd Msg)
+update msg board =
   case msg of
     Generate seed ->
-      let
-        (board, effects) = Board.update (Board.Generate seed) game.board
-      in
-        ( { game | board = board }
-        , Cmd.map BoardMsg effects)
+      ( Board.generate3balls board seed, Cmd.none)
 
     Click location ->
-      (game, (Random.generate (\t -> SelectOrMove (t, location)) (Random.int Random.minInt Random.maxInt)))
-
-    SelectOrMove (seed, location) ->
-      let
-        (board, effects) = Board.update (Board.Select seed location) game.board
-      in
-        ( { game | board = board }
-        , Cmd.map BoardMsg effects)
-
-    BoardMsg boardMsg ->
-      let
-        (board, effects) = Board.update boardMsg game.board
-      in
-        ( { game | board = board }
-        , Cmd.map BoardMsg effects)
+      ( Board.select board location, Cmd.none)
 
     Tick delta ->
-      let
-        (board, effects) = Board.update (Board.Tick delta) game.board
-      in
-        ( { game | board = board }
-        , Cmd.map BoardMsg effects)
+      ( board, (Random.generate (Animate delta) (Random.int Random.minInt Random.maxInt)))
+
+    Animate delta seed ->
+      ( Board.animateBoard delta seed board, Cmd.none)
 
 
 fieldWidth = Board.cols * Board.blockSize
 fieldHeight = Board.rows * Board.blockSize
 
-view : Game -> Html.Html Msg
-view game =
+view : Board -> Html.Html Msg
+view board =
   collage fieldWidth fieldHeight [
     rect fieldWidth fieldHeight
     |> filled lightRed
-    , Board.view game.board
+    , Board.view board
     |> group
     |> move (-fieldWidth / 2, fieldHeight / 2)
   ]
@@ -92,7 +66,7 @@ clicks =
   Mouse.clicks (\{ x, y } -> (x, y))
 
 
-cellClicks : Sub Board.Location
+cellClicks : Sub Location
 cellClicks =
   let
     coorsToLocation (x, y) =
