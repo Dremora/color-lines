@@ -48,8 +48,8 @@ setLocation location ball board =
   Array.set (locationToPosition location) ball board
 
 
-clearBall : Location -> Board -> Board
-clearBall location board =
+clearLocation : Location -> Board -> Board
+clearLocation location board =
   setLocation location Nothing board
 
 
@@ -74,16 +74,6 @@ selectedLocation board =
 clearSelection : Board -> Board
 clearSelection =
   Array.map <| Maybe.map (\ball -> { ball | selected = False })
-
-
-moveBall : Location -> Location -> Board -> Board
-moveBall old new board =
-  let
-    ball = Maybe.map (\ball -> { ball | selected = False }) (getBall old board)
-  in
-    board
-    |> clearBall old
-    |> setLocation new ball
 
 
 startMovingBall : List Location -> Location -> Location -> Board -> Board
@@ -166,17 +156,8 @@ drawBallAtLocation ((x, y), ball) =
 
 
 generate3balls board seed =
-  let
-    (board', _) =
-      addRandomBall (board, Random.initialSeed seed)
-      |> addRandomBall |> addRandomBall
-  in
-    board'
-
-
-remove : Maybe Ball -> Maybe Ball
-remove ballM =
-  Maybe.andThen ballM (\ball -> if BallM.isRemoved ball then Nothing else Just ball)
+  (board, Random.initialSeed seed)
+  |> addRandomBall |> addRandomBall |> addRandomBall |> fst
 
 
 shakeBall : Location -> Board -> Board
@@ -237,13 +218,13 @@ animateBoard delta seed board =
       case BallM.animate delta ball of
         Nop -> identity
         JustAnimate ball -> setLocation location (Just ball)
-        Remove -> setLocation location Nothing
+        Remove -> clearLocation location
         FinalizeMove ball newLocation ->
           \board ->
             let
               board' =
                 board
-                |> setLocation location Nothing
+                |> clearLocation location
                 |> setLocation newLocation (Just ball)
               toRemove = findMatching newLocation board'
             in

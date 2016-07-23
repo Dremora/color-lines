@@ -1,4 +1,4 @@
-module ColorLines.Ball exposing (Ball, init, view, startRemoving, animate, isRemoved
+module ColorLines.Ball exposing (Ball, init, view, startRemoving, animate
   , cantRemove, moveViaPath, isAnimating, Notification(..))
 
 import Array exposing (Array)
@@ -21,7 +21,6 @@ type alias Location = (Int, Int)
 
 type AnimationState =
     Normal
-  | Removed
   | Appearing { elapsed: Float }
   | Disappearing { elapsed: Float }
   | Moving { animation: Animation (Float, Float), finalLocation: Location }
@@ -35,12 +34,8 @@ type alias Ball =
   }
 
 
-isRemoved ball =
-  ball.animationState == Removed
-
-
 isAnimating ball =
-  ball.animationState /= Normal && ball.animationState /= Removed
+  ball.animationState /= Normal
 
 
 radius : Float
@@ -162,7 +157,6 @@ view ball =
     currentRadius =
       case ball.animationState of
         Normal -> radius
-        Removed -> 0
         Appearing { elapsed } -> (Ease.outBack elapsed) * radius
         Disappearing { elapsed } -> (1 + (Ease.inBack elapsed)) * radius
         CantMove _ -> radius

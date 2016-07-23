@@ -16,11 +16,6 @@ locationToPosition (x, y) (Matrix matrix) =
   y * matrix.x + x
 
 
--- positionToLocation : Int -> Location
--- positionToLocation pos =
---   (pos % cols, pos // cols)
-
-
 init : Int -> Int -> a -> Matrix a
 init x y element =
   Matrix { matrix = Array.repeat (x * y) element
