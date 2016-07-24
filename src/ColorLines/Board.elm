@@ -12,25 +12,20 @@ import Time exposing (Time)
 
 import AStar
 import Maybe.Extra exposing (isJust, isNothing)
+import Matrix exposing (Matrix)
 
 import ColorLines.Ball as BallM exposing (Ball, Notification(..))
-import ColorLines.Matrix as Matrix
 
 
 type alias Location = (Int, Int)
-type alias Board = Array.Array (Maybe Ball)
+type alias Board = Matrix (Maybe Ball)
 
 
 rows = 9
 cols = 9
 
 
-empty = Array.repeat (rows * cols) Nothing
-
-
-locationToPosition : Location -> Int
-locationToPosition (x, y) =
-  y * cols + x
+empty = Matrix.repeat rows cols Nothing
 
 
 positionToLocation : Int -> Location
@@ -39,13 +34,19 @@ positionToLocation pos =
 
 
 updateLocation : Location -> (Maybe Ball -> Maybe Ball) -> Board -> Board
-updateLocation location update board =
-  Array.set (locationToPosition location) (update (getBall location board)) board
+updateLocation (x, y) update board =
+  Matrix.update x y update board
+
+
+getLocation : Location -> Board -> Maybe Ball
+getLocation (x, y) board =
+  Matrix.get x y board
+  |> (flip Maybe.andThen) identity
 
 
 setLocation : Location -> Maybe Ball -> Board -> Board
-setLocation location ball board =
-  Array.set (locationToPosition location) ball board
+setLocation (x, y) ball board =
+  Matrix.set x y ball board
 
 
 clearLocation : Location -> Board -> Board
@@ -53,28 +54,23 @@ clearLocation location board =
   setLocation location Nothing board
 
 
-getBall : Location -> Board -> Maybe Ball
-getBall location board =
-  Array.get (locationToPosition location) board
-  |> (flip Maybe.andThen) identity
-
-
 selectedLocation : Board -> Maybe Location
 selectedLocation board =
-  Array.toIndexedList board
-  |> List.filter (\(_, ball) ->
+  board
+  |> Matrix.toIndexedArray
+  |> Array.filter (\(_, ball) ->
     case ball of
       Just ball -> ball.selected
       Nothing -> False
     )
+  |> Array.toList
   |> List.head
-  |> Maybe.map (positionToLocation << fst)
+  |> Maybe.map fst
 
 
-clearSelection : Board -> Board
-clearSelection =
-  Array.map <| Maybe.map (\ball -> { ball | selected = False })
-
+clearSelection : Location -> Board -> Board
+clearSelection location board =
+  updateLocation location (Maybe.map (\ball -> { ball | selected = False })) board
 
 startMovingBall : List Location -> Location -> Location -> Board -> Board
 startMovingBall path old new board =
@@ -104,7 +100,7 @@ emptyCellCount board =
         Just _ -> acc
         Nothing -> acc + 1
   in
-    Array.foldl sum 0 board
+    Array.foldl sum 0 (Matrix.filter (\_ -> True) board)
 
 
 freeIndexToPosition : Board -> Int -> Int
@@ -117,7 +113,7 @@ freeIndexToPosition board index =
         Just _ -> (pos + 1, left)
         Nothing -> (pos + 1, left - 1)
   in
-    Array.foldl rec (-1, index + 1) board |> fst
+    Array.foldl rec (-1, index + 1) (Matrix.filter (\_ -> True) board) |> fst
 
 
 randomFreeLocation : Board -> Random.Seed -> (Ball, Location, Random.Seed)
@@ -136,10 +132,11 @@ blockSize = 40
 view : Board -> List Form
 view board =
   board
-  |> Array.toIndexedList
-  |> List.filterMap (\(position, ball) -> case ball of
+  |> Matrix.toIndexedArray
+  |> Array.toList
+  |> List.filterMap (\(location, ball) -> case ball of
+      Just ball -> Just (location, ball)
       Nothing -> Nothing
-      Just ball -> Just ((positionToLocation position), ball)
     )
   |> List.map drawBallAtLocation
 
@@ -169,7 +166,7 @@ removeBalls : List Location -> Board -> Board
 removeBalls toRemove board =
   let
     rec location board =
-      case getBall location board of
+      case getLocation location board of
         Nothing -> board
         Just ball ->
           let
@@ -197,7 +194,7 @@ moves board location =
 
     isLocationEmpty : Location -> Bool
     isLocationEmpty location =
-      getBall location board |> isNothing
+      getLocation location board |> isNothing
 
   in
     allNeighbours location
@@ -234,8 +231,9 @@ animateBoard delta seed board =
                 removeBalls toRemove board'
     ballsWithLocations =
       board
-      |> Array.toIndexedList
-      |> List.filterMap (\(index, ball) -> Maybe.map (\ball -> (positionToLocation index, ball)) ball)
+      |> Matrix.toIndexedArray
+      |> Array.toList
+      |> List.filterMap (\(location, ball) -> Maybe.map (\ball -> (location, ball)) ball)
 
     actions =
       List.map actionOn ballsWithLocations
@@ -256,12 +254,12 @@ select : Board -> Location -> Board
 select board newLocation =
   let
     oldLocation = selectedLocation board
-    ball = getBall newLocation board
+    ball = getLocation newLocation board
   in
     case (oldLocation, ball) of
       (_, Just ball) ->
-        board
-        |> clearSelection
+        Maybe.map (\location -> clearSelection location board) oldLocation
+        |> Maybe.withDefault board
         |> setLocation newLocation (Just { ball | selected = True })
 
       (Just oldLocation, Nothing) ->
@@ -275,7 +273,7 @@ select board newLocation =
                 toRemove = findMatching newLocation board'
               in
                 board'
-            _ ->
+            Nothing ->
               shakeBall oldLocation board
 
       _ ->
@@ -295,7 +293,7 @@ type alias Direction = (Int, Int)
 
 findMatching : Location -> Board -> List Location
 findMatching location board =
-  case getBall location board of
+  case getLocation location board of
     Nothing ->
       []
     Just ball ->
@@ -320,7 +318,7 @@ findDir ball ((x, y) as location) board ((dx, dy) as direction) =
   let
     newLocation = (x + dx, y + dy)
   in
-    case getBall newLocation board of
+    case getLocation newLocation board of
       Nothing ->
         []
       Just ball2 ->
