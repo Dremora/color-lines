@@ -1,0 +1,26 @@
+language: node_js
+node_js:
+  - 6
+
+cache:
+  directories:
+    - elm-stuff
+
+before_install:
+  - npm install -g elm
+
+install:
+  - elm-package install --yes
+
+script:
+  - elm-make src/Main.elm --output dist/index.html
+
+deploy:
+  provider: s3
+  access_key_id:
+    secure: "Yepc41IvhHkVyRp1KNAzVbq5AwKjlu/Kq0HKOCUEIUSqXiRlK5XMoTPYBnJVGBN4RrRfU4MPDSjGl0wPTEjfJUm+nrLOjWkKRkn5esyUau4b5ldr9E0jYobNg2/se4wtfUSdQKDdd36W7gcuKoGmZ/1Z7WGrFDV2XMnB32AmNdXCRAtt9Xx3ervCbu2Ovc3TDOzrkqQqsANfMfM88AWoNMKyXMqvtY9GZqwxx7bMDZzgQSV5JdMpO6dvZ8YpLEZAF4naPaJKp+KyZEJPf5sZz1PI7e6vQ7VrM+Cv4SVnct05QSWibnZysCCjPt92zZEiRAgIxD6WUFGzQ+RUO08U4abCvc0QAqNLvKA1GvI8Yv6/OaUqwDCW0VHxErjO+QdWYf5bR+6rIUN4fMJI2EnR8KFW2UytABCfadl62Eaz0ybXlO0JEuJoKUuk7EBROVloey0UYku0izj6Bjv+OY7Ly50oqanlTq5DcnanfLMBg4Cdz0lBUTAqXkUjVgtKN+CZ/t7UgZfid4t1pZaqUefINNwWNpT+7P3Vta1JfihnjVb88tiSqXxSalUKNV/Tk4nH2zks5v2KhkaRkbOgYiWCkaQc7PgvebTQ783I0Ri9RjK+XbVzvCrGJE/0M1SyNRRfIOPk3LdCtfB7n+2ve8h4/iQ22M5j1pBs+Gm6iALjA8k="
+  secret_access_key:
+    secure: "Gi6SNlcyzuGYb9xuruZFyq1hPgKYT2BaykS4Yf3/4Z7S1Qgx4wcjCFWx+2m43Rd6BybNZNTLxBvrRd/Lg+1R36TbD3fIMDBZDQuEUegTEhI1eNmzmyVnMJCulmf3fTCvNiFV8yXCLiCXS2LuQyXAEeF5wu+aFQtYf/gVF0EkeDfJ6pRFjpgAN6U3OYk+FnYYlVCRnRaJRxylkp+ulyKBaEepuVE1FQ49OFt6FQmIIqxcyeuTuPs6CwrttM8KAwJaLrTZC3hQxnttVoUQr5HDwPZ85//4WrxvIeuOhAilEVzCziHa0REHE8Iylk2VaEO9H7WXd13oP6Ie+zgOTdEwKEuVjdcxfpidRuc7ewJkqgACODaXSGOlaI5mtd+cgSuiDG1xMjjqdEuXLKJwDd7TfwrxEvXM+eTx+4V4hfxvDNhRYdVDHi9gH7U0J4F4fgWubyDU9VIIKZ7EWpTcncXqfcIhBKomMGODYErEOUWSI5zxVMkLmyG6NUpqkhvgqnYHzD4jcXFHDG8JNZLkdkZP2mVbLFfrxVlg5NzMgZ5WdT5ykit6+pbbRlREJzhqMayTQ7Yfsbqnx/Eb5O3op7ycqiUWi3Sg3hv5rFpguEXj1l3SccyvSljhvsssiHDKqHt7NS13NfdOXWvwElOI8nYnR1MHQ+J/ft3bujIJPUg5jIQ="
+  bucket: "color-lines.dremora.com"
+  local_dir: dist
+  region: "eu-west-1"
